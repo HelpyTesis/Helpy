@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1032081046474",
+    "project_id": "helpy-a4492",
+    "storage_bucket": "helpy-a4492.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1032081046474:android:130b33967d122f693cad33",
+        "android_client_info": {
+          "package_name": "com.example.helpy"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1032081046474-0i5msm3580nc93ap6osu05avto0d4kgb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApOUk-ueiiX6qT0c-UAvd04SIBypQJz7M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1032081046474-0i5msm3580nc93ap6osu05avto0d4kgb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
