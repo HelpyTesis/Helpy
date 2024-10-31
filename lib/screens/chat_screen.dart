@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -15,13 +17,14 @@ class _ChatScreenState extends State<ChatScreen>
   int selectedIndex = 0;
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  final List<Map<String, String>> messages = [];
+  final TextEditingController messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     getCurrentUser();
-
-    // Inicializar la animación de escala
     _controller = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
@@ -43,14 +46,54 @@ class _ChatScreenState extends State<ChatScreen>
     }
   }
 
-  void signOut() async {
-    await _auth.signOut();
-    Navigator.pushReplacementNamed(context, '/login');
+  Future<void> sendMessage(String text) async {
+    setState(() {
+      messages.add({'sender': 'user', 'text': text});
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://146.148.78.31:5000/chat'), // URL de tu VM
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'message': text}),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(response.body);
+        final botMessage = jsonResponse['response'];
+        setState(() {
+          messages.add({'sender': 'bot', 'text': botMessage});
+        });
+      } else {
+        setState(() {
+          messages.add({
+            'sender': 'bot',
+            'text': 'Error: No se pudo obtener una respuesta.'
+          });
+        });
+      }
+    } catch (e) {
+      setState(() {
+        messages.add({
+          'sender': 'bot',
+          'text': 'Error: No se pudo conectar al servidor.'
+        });
+      });
+    }
+
+    // Auto-scroll al último mensaje
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    messageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -74,6 +117,7 @@ class _ChatScreenState extends State<ChatScreen>
                 color: Colors.redAccent,
               ),
             ),
+            // Opciones del Drawer
             _buildDrawerOption(
               index: 0,
               icon: Icons.chat,
@@ -114,52 +158,101 @@ class _ChatScreenState extends State<ChatScreen>
             ListTile(
               leading: Icon(Icons.exit_to_app),
               title: Text('Cerrar Sesión'),
-              onTap: signOut,
+              onTap: () async {
+                await _auth.signOut();
+                Navigator.pushReplacementNamed(context, '/login');
+              },
             ),
           ],
         ),
       ),
-      body: Stack(
+      body: Column(
         children: [
-          Center(
-            child: FadeTransition(
-              opacity: Tween(begin: 0.4, end: 0.4).animate(_controller),
-              child: ScaleTransition(
-                scale:
-                    _scaleAnimation, // Animación de respiración (crecimiento y encogimiento)
-                child: Image.asset(
-                  'assets/logo.png',
-                  height: 150,
-                  opacity: const AlwaysStoppedAnimation(0.4), // Opacidad fija
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(30.0),
-                  border: Border.all(color: Colors.grey),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.search, color: Colors.grey),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Hola, cuéntame sobre ti?',
-                          border: InputBorder.none,
-                        ),
+          Expanded(
+            child: Stack(
+              children: [
+                Center(
+                  child: FadeTransition(
+                    opacity: Tween(begin: 0.4, end: 0.4).animate(_controller),
+                    child: ScaleTransition(
+                      scale: _scaleAnimation,
+                      child: Image.asset(
+                        'assets/logo.png',
+                        height: 150,
+                        opacity: const AlwaysStoppedAnimation(0.4),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(top: 180.0),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      return Align(
+                        alignment: message['sender'] == 'user'
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          padding: EdgeInsets.all(12),
+                          margin: EdgeInsets.symmetric(
+                              vertical: 4, horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: message['sender'] == 'user'
+                                ? Colors.blueAccent
+                                : Colors.grey[300],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            message['text'] ?? '',
+                            style: TextStyle(
+                                color: message['sender'] == 'user'
+                                    ? Colors.white
+                                    : Colors.black),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: messageController,
+                    decoration: InputDecoration(
+                      hintText: 'Hola, cuéntame sobre ti?',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    onSubmitted: (text) {
+                      if (text.isNotEmpty) {
+                        sendMessage(text);
+                        messageController.clear();
+                      }
+                    },
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.send),
+                  onPressed: () {
+                    final text = messageController.text;
+                    if (text.isNotEmpty) {
+                      sendMessage(text);
+                      messageController.clear();
+                    }
+                  },
+                ),
+              ],
             ),
           ),
         ],
