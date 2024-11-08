@@ -1,10 +1,16 @@
+// lib/screens/chat_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:helpy/screens/chat_history_screen.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/chat_service.dart';
+import '../widgets/side_menu.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final String? chatId;
+
+  const ChatScreen({Key? key, this.chatId}) : super(key: key);
 
   @override
   _ChatScreenState createState() => _ChatScreenState();
@@ -13,7 +19,9 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen>
     with SingleTickerProviderStateMixin {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final ChatService chatService = ChatService();
   User? loggedInUser;
+  String? chatId;
   int selectedIndex = 0;
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
@@ -33,17 +41,41 @@ class _ChatScreenState extends State<ChatScreen>
     _scaleAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
+
+    loadLastOrNewChat();
   }
 
   void getCurrentUser() {
-    try {
-      final user = _auth.currentUser;
-      if (user != null) {
-        loggedInUser = user;
-      }
-    } catch (e) {
-      print(e);
+    final user = _auth.currentUser;
+    if (user != null) {
+      loggedInUser = user;
     }
+  }
+
+  Future<void> loadLastOrNewChat() async {
+    if (loggedInUser == null) return;
+    chatId = widget.chatId ??
+        await chatService.getLastChatId(loggedInUser!.uid) ??
+        await chatService.createChat(loggedInUser!.uid);
+    loadMessages();
+  }
+
+  Future<void> loadMessages() async {
+    if (chatId == null) return;
+    final chatMessages = await chatService.getMessages(chatId!);
+    setState(() {
+      messages.clear();
+      messages.addAll(chatMessages
+          .map((msg) => {'sender': msg['tipo'], 'text': msg['texto']}));
+    });
+  }
+
+  Future<void> createNewChat() async {
+    if (loggedInUser == null) return;
+    chatId = await chatService.createChat(loggedInUser!.uid);
+    setState(() {
+      messages.clear();
+    });
   }
 
   Future<void> sendMessage(String text) async {
@@ -51,9 +83,13 @@ class _ChatScreenState extends State<ChatScreen>
       messages.add({'sender': 'user', 'text': text});
     });
 
+    if (chatId != null) {
+      await chatService.saveMessage(chatId!, text, 'user');
+    }
+
     try {
       final response = await http.post(
-        Uri.parse('http://146.148.78.31:5000/chat'), // URL de tu VM
+        Uri.parse('http://146.148.78.31:5000/chat'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'message': text}),
       );
@@ -61,9 +97,14 @@ class _ChatScreenState extends State<ChatScreen>
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
         final botMessage = jsonResponse['response'];
+
         setState(() {
           messages.add({'sender': 'bot', 'text': botMessage});
         });
+
+        if (chatId != null) {
+          await chatService.saveMessage(chatId!, botMessage, 'bot');
+        }
       } else {
         setState(() {
           messages.add({
@@ -81,7 +122,6 @@ class _ChatScreenState extends State<ChatScreen>
       });
     }
 
-    // Auto-scroll al último mensaje
     _scrollController.animateTo(
       _scrollController.position.maxScrollExtent,
       duration: Duration(milliseconds: 300),
@@ -97,74 +137,36 @@ class _ChatScreenState extends State<ChatScreen>
     super.dispose();
   }
 
+  void handleSideMenuItemSelected(int index) {
+    setState(() {
+      selectedIndex = index;
+    });
+
+    if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ChatHistoryScreen(),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chat'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.add),
+            onPressed: createNewChat,
+          ),
+        ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              accountName: Text(loggedInUser?.displayName ?? 'Johanna Doe'),
-              accountEmail: Text(loggedInUser?.email ?? 'johanna@company.com'),
-              currentAccountPicture: CircleAvatar(
-                backgroundImage: AssetImage('assets/profile.jpg'),
-              ),
-              decoration: BoxDecoration(
-                color: Colors.redAccent,
-              ),
-            ),
-            // Opciones del Drawer
-            _buildDrawerOption(
-              index: 0,
-              icon: Icons.chat,
-              text: 'Chat',
-              context: context,
-            ),
-            _buildDrawerOption(
-              index: 1,
-              icon: Icons.report,
-              text: 'Reportes',
-              context: context,
-            ),
-            _buildDrawerOption(
-              index: 2,
-              icon: Icons.history,
-              text: 'Historial',
-              context: context,
-            ),
-            _buildDrawerOption(
-              index: 3,
-              icon: Icons.favorite,
-              text: 'Contenidos',
-              context: context,
-            ),
-            _buildDrawerOption(
-              index: 4,
-              icon: Icons.local_hospital,
-              text: 'Emergencia',
-              context: context,
-            ),
-            _buildDrawerOption(
-              index: 5,
-              icon: Icons.settings,
-              text: 'Ajustes',
-              context: context,
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.exit_to_app),
-              title: Text('Cerrar Sesión'),
-              onTap: () async {
-                await _auth.signOut();
-                Navigator.pushReplacementNamed(context, '/login');
-              },
-            ),
-          ],
-        ),
+      drawer: SideMenu(
+        selectedIndex: selectedIndex,
+        onItemSelected: handleSideMenuItemSelected,
       ),
       body: Column(
         children: [
@@ -257,26 +259,6 @@ class _ChatScreenState extends State<ChatScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDrawerOption({
-    required int index,
-    required IconData icon,
-    required String text,
-    required BuildContext context,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(text),
-      selected: selectedIndex == index,
-      selectedTileColor: Colors.redAccent.withOpacity(0.1),
-      onTap: () {
-        setState(() {
-          selectedIndex = index;
-        });
-        Navigator.pop(context);
-      },
     );
   }
 }
